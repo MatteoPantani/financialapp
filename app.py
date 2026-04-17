@@ -29,10 +29,15 @@ def load_watchlist():
 def add_to_watchlist(symbol, name, price):
     try:
         data = {"symbol": str(symbol), "name": str(name), "price": float(price)}
-        supabase.table("watchlist").insert(data).execute()
+        st.info(f"Tentativo di invio dati: {data}") # Messaggio di debug
+        
+        # Esegui l'inserimento
+        response = supabase.table("watchlist").insert(data).execute()
+        
+        st.write("Risposta del server:", response) # Debug: vediamo cosa risponde Supabase
         return True
     except Exception as e:
-        st.error(f"Errore nel salvataggio: {e}")
+        st.error(f"Errore catturato: {e}")
         return False
 
 def delete_from_watchlist(item_id):
