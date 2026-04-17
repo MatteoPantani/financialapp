@@ -1,60 +1,65 @@
 import streamlit as st
 import requests
 
-st.set_page_config(page_title="ISIN Tracker", page_icon="📈")
+st.set_page_config(page_title="ISIN Tracker 2026", page_icon="📈")
 
 st.title("🔍 ISIN Real-Time Info")
 
-# --- CONFIGURAZIONE API ---
-# CONSIGLIO: Se usi Streamlit Cloud, inserisci la chiave in "Secrets"
-API_KEY = st.text_input("Inserisci la tua API Key di Financial Modeling Prep:", type="password")
+# Sezione API Key
+API_KEY = st.text_input("Inserisci la tua API Key:", type="password")
 
 def get_data_by_isin(isin):
     if not API_KEY:
-        st.warning("Per favore, inserisci l'API Key.")
+        st.warning("Inserisci l'API Key per continuare.")
         return None
 
-    # 1. Ricerca tramite ISIN
-    search_url = f"https://financialmodelingprep.com/api/v3/search-isin?isin={isin}&apikey={API_KEY}"
+    # --- NUOVO ENDPOINT 2026 ---
+    # Usiamo la ricerca universale che supporta ticker, nomi e ISIN
+    search_url = f"https://financialmodelingprep.com/api/v3/search?query={isin}&limit=1&apikey={API_KEY}"
     
     try:
-        response = requests.get(search_url).json()
+        search_response = requests.get(search_url).json()
         
-        # Gestione errori API (es. chiave scaduta o errata)
-        if isinstance(response, dict) and "Error Message" in response:
-            st.error(f"Errore API: {response['Error Message']}")
+        # Controllo se l'API restituisce un errore di sottoscrizione
+        if isinstance(search_response, dict) and "Error Message" in search_response:
+            st.error(f"Errore API: {search_response['Error Message']}")
             return None
             
-        if not response or len(response) == 0:
-            st.warning(f"Nessun titolo trovato per l'ISIN: {isin}")
+        if not search_response:
+            st.warning(f"Nessun risultato per l'ISIN: {isin}. Verifica che sia corretto.")
             return None
         
-        # Se arriviamo qui, abbiamo trovato il simbolo
-        symbol = response[0].get('symbol')
-        exchange = response[0].get('exchangeShortName')
+        # Recuperiamo il simbolo dal primo risultato della ricerca
+        symbol = search_response[0].get('symbol')
         
-        # 2. Recupero quotazione
+        # Ora prendiamo i dati reali (Quote) usando il simbolo ottenuto
         quote_url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={API_KEY}"
         quote_data = requests.get(quote_url).json()
         
-        if quote_data and len(quote_data) > 0:
+        if quote_data:
             return quote_data[0]
             
     except Exception as e:
-        st.error(f"Si è verificato un errore tecnico: {e}")
+        st.error(f"Errore di connessione: {e}")
     
     return None
 
-# --- INTERFACCIA ---
+# --- UI APP ---
 isin_input = st.text_input("Inserisci Codice ISIN (es. US0378331005):").upper().strip()
 
 if isin_input:
-    data = get_data_by_isin(isin_input)
-    if data:
-        st.success(f"Dati per {data.get('name')}")
-        col1, col2 = st.columns(2)
-        col1.metric("Prezzo", f"{data.get('price')} {data.get('symbol')}")
-        col2.metric("Variazione %", f"{data.get('changesPercentage')}%")
+    with st.spinner('Ricerca in corso...'):
+        data = get_data_by_isin(isin_input)
         
-        with st.expander("Vedi dettagli completi"):
-            st.write(data)
+        if data:
+            st.success(f"Titolo trovato: **{data.get('name')}**")
+            
+            # Visualizzazione dati principali
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Prezzo", f"{data.get('price')} {data.get('currency', '')}")
+            c2.metric("Variazione", f"{data.get('changesPercentage')}%")
+            c3.metric("Scambio", data.get('exchangedisplayName', 'N/A'))
+            
+            # Dettagli aggiuntivi
+            with st.expander("Dettagli Tecnici"):
+                st.json(data)
