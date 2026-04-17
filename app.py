@@ -4,85 +4,73 @@ import pandas as pd
 from supabase import create_client, Client
 import time
 
-# --- SETUP PAGINA ---
-st.set_page_config(page_title="FinHub Debugger", layout="wide")
-st.title("🕵️ Diagnostica Connessione Supabase")
+# --- CONFIGURAZIONE ---
+st.set_page_config(page_title="FinHub Pro", layout="wide")
 
-# --- 1. TEST CONNESSIONE SECRETS ---
-try:
-    url: str = st.secrets["SUPABASE_URL"]
-    key: str = st.secrets["SUPABASE_KEY"]
-    supabase: Client = create_client(url, key)
-    st.sidebar.success("✅ Secrets caricati")
-except Exception as e:
-    st.sidebar.error(f"❌ Errore Secrets: {e}")
-    st.stop()
+# Connessione
+url = st.secrets["SUPABASE_URL"]
+key = st.secrets["SUPABASE_KEY"]
+supabase = create_client(url, key)
 
-# --- 2. FUNZIONE DI SALVATAGGIO "PARLANTE" ---
-def add_to_watchlist_debug(symbol, name, price):
-    st.write("### 🛠️ Log Operazione di Salvataggio")
-    
-    # Prepariamo l'oggetto
-    payload = {
-        "symbol": str(symbol),
-        "name": str(name) if name else "N/A",
-        "price": float(price) if price else 0.0
-    }
-    
-    st.write("**1. Dati inviati al database:**")
-    st.json(payload)
-    
+# --- FUNZIONI ---
+def add_to_db(symbol, name, price):
     try:
-        st.write("**2. Chiamata API in corso...**")
-        # Tentativo di inserimento
-        res = supabase.table("watchlist").insert(payload).execute()
-        
-        st.write("**3. Risposta integrale dal server:**")
-        st.write(res)
-        
-        # Verifica se l'inserimento è andato a buon fine
-        if hasattr(res, 'data') and len(res.data) > 0:
-            st.success("🎉 SUCCESSO! Riga creata su Supabase.")
-            return True
-        else:
-            st.error("❌ IL SERVER HA RISPOSTO MA NON HA SCRITTO.")
-            st.warning("Se 'data' è vuoto ([]) e non vedi errori, significa che la RLS su Supabase sta ancora bloccando l'accesso.")
-            return False
-            
+        data = {"symbol": str(symbol), "name": str(name), "price": float(price)}
+        # Esegui l'insert e chiedi di restituire il dato inserito
+        res = supabase.table("watchlist").insert(data).execute()
+        return len(res.data) > 0
     except Exception as e:
-        st.error(f"⚠️ ERRORE CRITICO DURANTE L'INSERT:")
-        st.code(str(e)) # Mostra l'errore tecnico per esteso
+        st.error(f"Errore: {e}")
         return False
 
-# --- 3. RICERCA E TEST ---
-with st.sidebar:
-    query = st.text_input("Inserisci Ticker per il test (es. AAPL)").upper()
-    search_btn = st.button("Cerca")
+def load_db():
+    res = supabase.table("watchlist").select("*").order("created_at", desc=True).execute()
+    return res.data
 
-if query and search_btn:
-    t = yf.Ticker(query)
+def delete_item(id):
+    supabase.table("watchlist").delete().eq("id", id).execute()
+    st.rerun()
+
+# --- INTERFACCIA ---
+st.title("📈 Il mio Portafoglio Cloud")
+
+with st.sidebar:
+    query = st.text_input("Cerca Ticker (es. AAPL, BTC-USD, RACE.MI)").upper()
+    if st.button("🔍 Cerca"):
+        st.session_state.search = query
+
+if 'search' in st.session_state and st.session_state.search:
+    t = yf.Ticker(st.session_state.search)
     info = t.info
     if 'symbol' in info:
-        curr_price = info.get('currentPrice') or info.get('regularMarketPrice')
-        st.subheader(f"Titolo: {info.get('shortName')}")
-        st.metric("Prezzo", f"{curr_price}")
+        p = info.get('currentPrice') or info.get('regularMarketPrice')
+        n = info.get('shortName')
         
-        if st.button("🚀 TENTA SALVATAGGIO"):
-            success = add_to_watchlist_debug(info['symbol'], info.get('shortName'), curr_price)
-            if success:
-                st.balloons()
-                time.sleep(2)
+        col1, col2 = st.columns([3, 1])
+        col1.metric(n, f"{p} {info.get('currency', '')}")
+        
+        if col2.button("⭐ Salva nel Cloud"):
+            if add_to_db(info['symbol'], n, p):
+                st.success("Aggiunto!")
+                time.sleep(1)
                 st.rerun()
     else:
         st.error("Titolo non trovato.")
 
 st.divider()
 
-# --- 4. TEST DI LETTURA ---
-st.subheader("📋 Stato Tabella (SELECT)")
-try:
-    test_read = supabase.table("watchlist").select("*").limit(1).execute()
-    st.write("Test di lettura riuscito. Dati presenti:")
-    st.write(test_read.data)
-except Exception as e:
-    st.error(f"Errore durante la lettura: {e}")
+# --- VISUALIZZAZIONE WATCHLIST ---
+st.subheader("📁 Watchlist Salvata")
+items = load_db()
+
+if items:
+    for i in items:
+        # Evitiamo di mostrare il record di TEST se vuoi, o mostriamoli tutti
+        c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
+        c1.write(f"**{i['name']}**")
+        c2.write(f"`{i['symbol']}`")
+        c3.write(f"{i['price']}")
+        if c4.button("Rimuovi", key=f"del_{i['id']}"):
+            delete_item(i['id'])
+else:
+    st.info("Nessun titolo salvato.")
